@@ -45,3 +45,17 @@ func (jr *JSONReporter) WriteWebReport(result *models.WebScanResult) error {
 
     return nil
 }
+
+// WriteSubnetReport writes subnet scan results to JSON
+func (jr *JSONReporter) WriteSubnetReport(result *scanner.SubnetResult) error {
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	if err := os.WriteFile(jr.outputPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write JSON file: %w", err)
+	}
+
+	return nil
+}

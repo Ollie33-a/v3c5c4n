@@ -193,3 +193,68 @@ func (tr *TerminalReporter) PrintWebReport(result *models.WebScanResult) {
     fmt.Println()
     color.New(color.FgCyan, color.Bold).Println("════════════════════════════════════════════════════════════════")
 }
+
+
+// PrintSubnetReport prints subnet scan results
+func (tr *TerminalReporter) PrintSubnetReport(result *scanner.SubnetResult) {
+	fmt.Println()
+	color.New(color.FgCyan, color.Bold).Printf("════════════════════════════════════════════════════════════════\n")
+	color.New(color.FgCyan, color.Bold).Printf("SUBNET SCAN REPORT\n")
+	color.New(color.FgCyan, color.Bold).Printf("════════════════════════════════════════════════════════════════\n\n")
+
+	color.New(color.FgWhite, color.Bold).Printf("Subnet: ")
+	fmt.Printf("%s\n", result.Subnet)
+
+	color.New(color.FgWhite, color.Bold).Printf("Scan Start: ")
+	fmt.Printf("%s\n", result.StartTime.Format(time.RFC3339))
+
+	color.New(color.FgWhite, color.Bold).Printf("Duration: ")
+	fmt.Printf("%s\n", result.ScanDuration)
+
+	fmt.Println()
+	color.New(color.FgCyan, color.Bold).Printf("SUMMARY:\n")
+	color.New(color.FgCyan, color.Bold).Println("─────────────────────────────────────────────────────────────────")
+	fmt.Printf("Total Hosts:    %d\n", result.TotalHosts)
+	color.New(color.FgGreen).Printf("Alive Hosts:    %d\n", result.AliveHosts)
+	color.New(color.FgRed).Printf("Down Hosts:     %d\n", result.DownHosts)
+	fmt.Printf("Scanned:        %d\n", result.HostsScanned)
+
+	fmt.Println()
+	color.New(color.FgGreen, color.Bold).Printf("DISCOVERED HOSTS (%d):\n", len(result.DiscoveredHosts))
+	color.New(color.FgGreen, color.Bold).Println("─────────────────────────────────────────────────────────────────")
+
+	if len(result.DiscoveredHosts) == 0 {
+		fmt.Println("No hosts with open ports found")
+	} else {
+		for i, host := range result.DiscoveredHosts {
+			fmt.Printf("\n[%d] %s\n", i+1, host.IP)
+
+			if host.Hostname != "" {
+				fmt.Printf("    Hostname: %s\n", host.Hostname)
+			}
+
+			// Print OS Detection
+			fmt.Printf("    OS: %s (Confidence: %.0f%%)\n", host.OSDetection.DetectedOS, host.OSDetection.Confidence*100)
+			fmt.Printf("    Version: %s\n", host.OSDetection.ProbableVersion)
+
+			// Print indicators
+			if len(host.OSDetection.Indicators) > 0 {
+				fmt.Println("    Indicators:")
+				for _, indicator := range host.OSDetection.Indicators {
+					fmt.Printf("      • %s\n", indicator)
+				}
+			}
+
+			// Print open ports
+			fmt.Printf("    Open Ports: %d\n", len(host.OpenPorts))
+			for _, port := range host.OpenPorts {
+				fmt.Printf("      • %d/%s - %s\n", port.Port, port.Protocol, port.Service)
+			}
+
+			fmt.Printf("    Scan Duration: %s\n", host.ScanDuration)
+		}
+	}
+
+	fmt.Println()
+	color.New(color.FgCyan, color.Bold).Println("════════════════════════════════════════════════════════════════")
+}

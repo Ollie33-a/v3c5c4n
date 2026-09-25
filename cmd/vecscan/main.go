@@ -76,63 +76,136 @@ func main() {
 }
 
 func scanNetwork(ctx context.Context, logger *utils.Logger, target *string, ports *string, timeout *time.Duration, rateLimit *int, threads *int, useEvasion *bool, evasionMethods *string, includeUDP *bool, jsonOutput *string, verbose *bool, vulnScan *bool) {
-    // Parse port range
-    parsedPorts, err := utils.ParsePortRange(*ports)
-    if err != nil {
-        logger.Fatal("Invalid port specification: %v", err)
-    }
+	// Check if it's a subnet scan
+	isSubnet := strings.Contains(*target, "/") || strings.Count(*target, "-") > 0
 
-    // Parse evasion methods
-    var evasionList []string
-    if *useEvasion {
-        evasionList = strings.Split(*evasionMethods, ",")
-        for i := range evasionList {
-            evasionList[i] = strings.TrimSpace(evasionList[i])
-        }
-    }
+	if isSubnet && strings.Contains(*target, "/") {
+		// SUBNET SCAN
+		scanSubnet(ctx, logger, target, ports, timeout, rateLimit, threads, jsonOutput, verbose)
+	} else {
+		// SINGLE HOST SCAN
+		scanSingleHost(ctx, logger, target, ports, timeout, rateLimit, threads, useEvasion, evasionMethods, includeUDP, jsonOutput, verbose, vulnScan)
+	}
+}
 
-    // Create scan configuration
-    config := &models.ScanConfig{
-        Target:         *target,
-        Ports:          parsedPorts,
-        Timeout:        *timeout,
-        RateLimit:      *rateLimit,
-        ThreadCount:    *threads,
-        UseEvasion:     *useEvasion,
-        EvasionMethods: evasionList,
-        IncludeUDP:     *includeUDP,
-        JSONOutput:     *jsonOutput,
-        Verbose:        *verbose,
-        Context:        ctx,
-        Cancel:         nil,
-    }
+func scanSubnet(ctx context.Context, logger *utils.Logger, target *string, ports *string, timeout *time.Duration, rateLimit *int, threads *int, jsonOutput *string, verbose *bool) {
+	// Parse ports
+	parsedPorts, err := utils.ParsePortRange(*ports)
+	if err != nil {
+		logger.Fatal("Invalid port specification: %v", err)
+	}
 
-    // Create and run scanner
-    ns := scanner.NewNetworkScanner(config, logger)
-    result, err := ns.Scan()
+	// Create scan configuration
+	config := &models.ScanConfig{
+		Target:     *target,
+		Ports:      parsedPorts,
+		Timeout:    *timeout,
+		RateLimit:  *rateLimit,
+		ThreadCount: *threads,
+		JSONOutput: *jsonOutput,
+		Verbose:    *verbose,
+		Context:    ctx,
+		Cancel:     nil,
+	}
 
-    if err != nil {
-        logger.Fatal("Scan failed: %v", err)
-    }
+	// Create and run subnet scanner
+	ss := scanner.NewSubnetScanner(config, logger)
+	result, err := ss.ScanSubnet()
 
-    // Print terminal report
-    tr := reporter.NewTerminalReporter()
-    tr.PrintNetworkReport(result)
+	if err != nil {
+		logger.Fatal("Subnet scan failed: %v", err)
+	}
 
-    // Perform vulnerability assessment if requested
-	if *vulnScan && len(result.OpenPorts) > 0 { // NEW
+	// Print terminal report
+	tr := reporter.NewTerminalReporter()
+	tr.PrintSubnetReport(result)
+
+	// Write JSON report if requested
+	if *jsonOutput != "" {
+		jr := reporter.NewJSONReporter(*jsonOutput)
+		if err := jr.WriteSubnetReport(result); err != nil {
+			logger.Error("Failed to write JSON report: %v", err)
+		} else {
+			logger.Success("JSON report saved to %s", *jsonOutput)
+		}
+	}
+}
+
+func scanSingleHost(ctx context.Context, logger *utils.Logger, target *string, ports *string, timeout *time.Duration, rateLimit *int, threads *int, useEvasion *bool, evasionMethods *string, includeUDP *bool, jsonOutput *string, verbose *bool, vulnScan *bool) {
+	// Parse ports
+	parsedPorts, err := utils.ParsePortRange(*ports)
+	if err != nil {
+		logger.Fatal("Invalid port specification: %v", err)
+	}
+
+	// Parse evasion methods
+	var evasionList []string
+	if *useEvasion {
+		evasionList = strings.Split(*evasionMethods, ",")
+		for i := range evasionList {
+			evasionList[i] = strings.TrimSpace(evasionList[i])
+		}
+	}
+
+	// Create scan configuration
+	config := &models.ScanConfig{
+		Target:         *target,
+		Ports:          parsedPorts,
+		Timeout:        *timeout,
+		RateLimit:      *rateLimit,
+		ThreadCount:    *threads,
+		UseEvasion:     *useEvasion,
+		EvasionMethods: evasionList,
+		IncludeUDP:     *includeUDP,
+		JSONOutput:     *jsonOutput,
+		Verbose:        *verbose,
+		Context:        ctx,
+		Cancel:         nil,
+	}
+
+	// Create and run scanner
+	ns := scanner.NewNetworkScanner(config, logger)
+	result, err := ns.Scan()
+
+	if err != nil {
+		logger.Fatal("Scan failed: %v", err)
+	}
+
+	// Print OS Detection
+	if len(result.OpenPorts) > 0 {
+		logger.Info("\n═══════════════════════════════════════════════════════════════")
+		logger.Info("OS DETECTION")
+		logger.Info("═══════════════════════════════════════════════════════════════")
+
+		osFingerprint := scanner.DetectOS(result.OpenPorts)
+		logger.Info("Detected OS: %s", osFingerprint.DetectedOS)
+		logger.Info("Confidence: %.0f%%", osFingerprint.Confidence*100)
+		logger.Info("Probable Version: %s", osFingerprint.ProbableVersion)
+		logger.Info("Indicators:")
+		for _, indicator := range osFingerprint.Indicators {
+			logger.Info("  • %s", indicator)
+		}
+		logger.Info("═══════════════════════════════════════════════════════════════")
+	}
+
+	// Print terminal report
+	tr := reporter.NewTerminalReporter()
+	tr.PrintNetworkReport(result)
+
+	// Perform vulnerability assessment if requested
+	if *vulnScan && len(result.OpenPorts) > 0 {
 		ns.ScanVulnerabilities(result.OpenPorts)
 	}
 
-    // Write JSON report if requested
-    if *jsonOutput != "" {
-        jr := reporter.NewJSONReporter(*jsonOutput)
-        if err := jr.WriteNetworkReport(result); err != nil {
-            logger.Error("Failed to write JSON report: %v", err)
-        } else {
-            logger.Success("JSON report saved to %s", *jsonOutput)
-        }
-    }
+	// Write JSON report if requested
+	if *jsonOutput != "" {
+		jr := reporter.NewJSONReporter(*jsonOutput)
+		if err := jr.WriteNetworkReport(result); err != nil {
+			logger.Error("Failed to write JSON report: %v", err)
+		} else {
+			logger.Success("JSON report saved to %s", *jsonOutput)
+		}
+	}
 }
 
 func scanWeb(ctx context.Context, logger *utils.Logger, target *string, jsonOutput *string, checkCVE *bool, deepScan *bool) {
