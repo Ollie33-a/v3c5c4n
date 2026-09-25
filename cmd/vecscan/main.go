@@ -76,7 +76,7 @@ func main() {
 
 func scanNetwork(ctx context.Context, logger *utils.Logger, target *string, ports *string, timeout *time.Duration, rateLimit *int, threads *int, useEvasion *bool, evasionMethods *string, includeUDP *bool, jsonOutput *string, verbose *bool) {
     // Parse port range
-    startPort, endPort, err := utils.ParsePortRange(*ports)
+    parsedPorts, err := utils.ParsePortRange(*ports)
     if err != nil {
         logger.Fatal("Invalid port specification: %v", err)
     }
@@ -85,13 +85,15 @@ func scanNetwork(ctx context.Context, logger *utils.Logger, target *string, port
     var evasionList []string
     if *useEvasion {
         evasionList = strings.Split(*evasionMethods, ",")
+        for i := range evasionList {
+            evasionList[i] = strings.TrimSpace(evasionList[i])
+        }
     }
 
     // Create scan configuration
     config := &models.ScanConfig{
         Target:         *target,
-        StartPort:      startPort,
-        EndPort:        endPort,
+        Ports:          parsedPorts,
         Timeout:        *timeout,
         RateLimit:      *rateLimit,
         ThreadCount:    *threads,

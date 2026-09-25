@@ -9,7 +9,7 @@ import (
 // ScanConfig holds the configuration for network scanning
 type ScanConfig struct {
     Target              string
-    StartPort           int
+    Ports               []int
     EndPort             int
     Timeout             time.Duration
     RateLimit           int // packets per second
@@ -44,6 +44,7 @@ type PortResult struct {
     Banner          string
     Confidence      float64 // 0.0 to 1.0
     EvasionMethod   string
+    CVEs            []CVEMatch
     ScannedAt       time.Time
 }
 

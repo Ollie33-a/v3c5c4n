@@ -9,6 +9,7 @@ import (
 
 	"github.com/Ollie33-a/v3c5c4n/internal/models"
 	"github.com/Ollie33-a/v3c5c4n/internal/utils"
+    "github.com/Ollie33-a/v3c5c4n/internal/web"
 )
 
 // NetworkScanner performs network port scanning
@@ -44,13 +45,13 @@ func (ns *NetworkScanner) Scan() (*models.HostResult, error) {
 	result := &models.HostResult{
 		Target:        ns.config.Target,
 		Timestamp:     time.Now(),
-		TotalPorts:    ns.config.EndPort - ns.config.StartPort + 1,
+		TotalPorts:    len(ns.config.Ports),
 		OpenPorts:     make([]models.PortResult, 0),
 		ClosedPorts:   make([]models.PortResult, 0),
 		FilteredPorts: make([]models.PortResult, 0),
 	}
 
-	ns.logger.Info("Starting scan on %s (%d-%d ports)", ns.config.Target, ns.config.StartPort, ns.config.EndPort)
+	ns.logger.Info("Starting scan on %s (%d ports)", ns.config.Target, len(ns.config.Ports))
 	ns.logger.Debug("Using %d threads with rate limit: %d packets/sec", ns.config.ThreadCount, ns.config.RateLimit)
 
 	startTime := time.Now()
@@ -95,7 +96,7 @@ func (ns *NetworkScanner) scanTCP() *TCPScanResult {
 	}
 
 	ports := make(chan int, ns.config.ThreadCount)
-	results := make(chan models.PortResult, ns.state.TotalPorts)
+	results := make(chan models.PortResult, len(ns.config.Ports))
 	var wg sync.WaitGroup
 
 	// Start worker goroutines
@@ -106,7 +107,7 @@ func (ns *NetworkScanner) scanTCP() *TCPScanResult {
 
 	// Send ports to scan
 	go func() {
-		for port := ns.config.StartPort; port <= ns.config.EndPort; port++ {
+		for _, port := range ns.config.Ports {
 			select {
 			case ports <- port:
 			case <-ns.config.Context.Done():
@@ -178,6 +179,7 @@ func (ns *NetworkScanner) scanTCPPort(port int) models.PortResult {
 		Service:    models.GetServiceName(port),
 		ScannedAt:  time.Now(),
 		Confidence: 0.0,
+        CVEs:       make([]models.CVEMatch, 0),
 	}
 
 	address := fmt.Sprintf("%s:%d", ns.config.Target, port)
@@ -190,6 +192,9 @@ func (ns *NetworkScanner) scanTCPPort(port int) models.PortResult {
 
 		// Try to get banner
 		result.Banner = ns.getBanner(conn)
+
+        // Match to CVEs
+        result.CVEs = web.MatchPortToCVE(port, result.Service)
 	} else {
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 			result.State = "filtered"

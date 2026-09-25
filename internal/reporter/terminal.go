@@ -47,6 +47,15 @@ func (tr *TerminalReporter) PrintNetworkReport(result *models.HostResult) {
         for _, port := range result.OpenPorts {
             fmt.Printf("%-10d %-15s %-30s %-15.1f%%\n",
                 port.Port, port.Protocol, port.Service, port.Confidence*100)
+
+            //Print CVEs if any
+            if len(port.CVEs) > 0 {
+                color.New(color.FgRed, color.Bold).Printf("  CVEs Found:\n")
+                for _, cve := range port.CVEs {
+                    color.New(color.FgRed).Printf("    [%s] %s  (CVSS : %.1f)\n",
+                        cve.CVEID, cve.Title, cve.Score)
+                }
+            }
         }
     }
 
