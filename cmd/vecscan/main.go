@@ -32,6 +32,7 @@ func main() {
         verbose         = flag.Bool("verbose", false, "Enable verbose output")
         checkCVE        = flag.Bool("cve", false, "Check for CVE matches")
         deepScan       = flag.Bool("deep", false, "Enable deep scanning")
+        vulnScan        = flag.Bool("vuln", false, "Perform vulnerability assessment")
     )
 
     flag.Parse()
@@ -65,7 +66,7 @@ func main() {
     // Execute scan based on type
     switch *scanType {
     case "network":
-        scanNetwork(ctx, logger, target, ports, timeout, rateLimit, threads, useEvasion, evasionMethods, includeUDP, jsonOutput, verbose)
+        scanNetwork(ctx, logger, target, ports, timeout, rateLimit, threads, useEvasion, evasionMethods, includeUDP, jsonOutput, verbose, vulnScan)
     case "web":
         scanWeb(ctx, logger, target, jsonOutput, checkCVE, deepScan)
     default:
@@ -74,7 +75,7 @@ func main() {
     }
 }
 
-func scanNetwork(ctx context.Context, logger *utils.Logger, target *string, ports *string, timeout *time.Duration, rateLimit *int, threads *int, useEvasion *bool, evasionMethods *string, includeUDP *bool, jsonOutput *string, verbose *bool) {
+func scanNetwork(ctx context.Context, logger *utils.Logger, target *string, ports *string, timeout *time.Duration, rateLimit *int, threads *int, useEvasion *bool, evasionMethods *string, includeUDP *bool, jsonOutput *string, verbose *bool, vulnScan *bool) {
     // Parse port range
     parsedPorts, err := utils.ParsePortRange(*ports)
     if err != nil {
@@ -117,6 +118,11 @@ func scanNetwork(ctx context.Context, logger *utils.Logger, target *string, port
     // Print terminal report
     tr := reporter.NewTerminalReporter()
     tr.PrintNetworkReport(result)
+
+    // Perform vulnerability assessment if requested
+	if *vulnScan && len(result.OpenPorts) > 0 { // NEW
+		ns.ScanVulnerabilities(result.OpenPorts)
+	}
 
     // Write JSON report if requested
     if *jsonOutput != "" {

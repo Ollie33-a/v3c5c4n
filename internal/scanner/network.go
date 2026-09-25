@@ -274,6 +274,47 @@ func (ns *NetworkScanner) scanUDPPort(port int) models.PortResult {
 	return result
 }
 
+// ScanVulnerabilities scans open ports for known vulnerabilities
+func (ns *NetworkScanner) ScanVulnerabilities(openPorts []models.PortResult) {
+	ns.logger.Info("\nStarting vulnerability assessment on %d open ports...", len(openPorts))
+	
+	vulnScanner := NewVulnerabilityScanner(ns.logger, ns.config.Target)
+	
+	for _, port := range openPorts {
+		ns.logger.Info("═══════════════════════════════════════════════════════════════")
+		vulns := vulnScanner.ScanPort(port.Port, port.Service)
+		
+		if len(vulns) > 0 {
+			ns.logger.Warn("Found %d vulnerabilities on port %d/%s", len(vulns), port.Port, port.Protocol)
+			
+			for _, vuln := range vulns {
+				severityColor := "medium"
+				switch vuln.Severity {
+				case "critical":
+					severityColor = "critical"
+					ns.logger.Error("[CRITICAL] %s (CVSS: %.1f)", vuln.Title, vuln.CVSS)
+				case "high":
+					severityColor = "high"
+					ns.logger.Error("[HIGH] %s (CVSS: %.1f)", vuln.Title, vuln.CVSS)
+				case "medium":
+					ns.logger.Warn("[MEDIUM] %s (CVSS: %.1f)", vuln.Title, vuln.CVSS)
+				case "low":
+					ns.logger.Info("[LOW] %s (CVSS: %.1f)", vuln.Title, vuln.CVSS)
+				}
+				
+				ns.logger.Info("  Description: %s", vuln.Description)
+				ns.logger.Info("  Remediation: %s", vuln.Remediation)
+				
+				if len(vuln.CVEs) > 0 {
+					ns.logger.Error("  CVEs: %v", vuln.CVEs)
+				}
+				ns.logger.Info("  Confidence: %.0f%%", vuln.ConfidenceScore*100)
+			}
+		}
+	}
+	ns.logger.Info("═══════════════════════════════════════════════════════════════")
+}
+
 // getBanner retrieves service banner from open port
 func (ns *NetworkScanner) getBanner(conn net.Conn) string {
 	buffer := make([]byte, 1024)
