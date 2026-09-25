@@ -1,0 +1,37 @@
+# Binaries
+/vecscan
+*.exe
+*.exe~
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Test binary
+*.test
+
+# Output of coverage
+*.out
+*.cov
+
+# Go workspace
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*~
+
+# Reports
+*.json
+reports/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+vendor/
