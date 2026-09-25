@@ -197,11 +197,11 @@ func (tr *TerminalReporter) PrintWebReport(result *models.WebScanResult) {
 	color.New(color.FgCyan, color.Bold).Println("════════════════════════════════════════════════════════════════")
 }
 
-// PrintSubnetReport prints subnet scan results
+// PrintSubnetReport prints subnet scan results summary
 func (tr *TerminalReporter) PrintSubnetReport(result *scanner.SubnetResult) {
 	fmt.Println()
 	color.New(color.FgCyan, color.Bold).Printf("════════════════════════════════════════════════════════════════\n")
-	color.New(color.FgCyan, color.Bold).Printf("SUBNET SCAN REPORT\n")
+	color.New(color.FgCyan, color.Bold).Printf("SUBNET SCAN SUMMARY\n")
 	color.New(color.FgCyan, color.Bold).Printf("════════════════════════════════════════════════════════════════\n\n")
 
 	color.New(color.FgWhite, color.Bold).Printf("Subnet: ")
@@ -210,53 +210,44 @@ func (tr *TerminalReporter) PrintSubnetReport(result *scanner.SubnetResult) {
 	color.New(color.FgWhite, color.Bold).Printf("Scan Start: ")
 	fmt.Printf("%s\n", result.StartTime.Format(time.RFC3339))
 
-	color.New(color.FgWhite, color.Bold).Printf("Duration: ")
+	color.New(color.FgWhite, color.Bold).Printf("Total Duration: ")
 	fmt.Printf("%s\n", result.ScanDuration)
 
 	fmt.Println()
-	color.New(color.FgCyan, color.Bold).Printf("SUMMARY:\n")
+	color.New(color.FgCyan, color.Bold).Printf("FINAL SUMMARY:\n")
 	color.New(color.FgCyan, color.Bold).Println("─────────────────────────────────────────────────────────────────")
-	fmt.Printf("Total Hosts:    %d\n", result.TotalHosts)
-	color.New(color.FgGreen).Printf("Alive Hosts:    %d\n", result.AliveHosts)
-	color.New(color.FgRed).Printf("Down Hosts:     %d\n", result.DownHosts)
-	fmt.Printf("Scanned:        %d\n", result.HostsScanned)
+	fmt.Printf("Total Hosts in Subnet: %d\n", result.TotalHosts)
+	color.New(color.FgGreen).Printf("Alive Hosts Found:    %d\n", result.AliveHosts)
+	color.New(color.FgRed).Printf("Hosts Down:           %d\n", result.DownHosts)
+	fmt.Printf("Hosts with Services:  %d\n", len(result.DiscoveredHosts))
 
+	// Summary of hosts
 	fmt.Println()
-	color.New(color.FgGreen, color.Bold).Printf("DISCOVERED HOSTS (%d):\n", len(result.DiscoveredHosts))
+	color.New(color.FgGreen, color.Bold).Printf("HOSTS WITH OPEN PORTS:\n")
 	color.New(color.FgGreen, color.Bold).Println("─────────────────────────────────────────────────────────────────")
 
 	if len(result.DiscoveredHosts) == 0 {
 		fmt.Println("No hosts with open ports found")
 	} else {
-		for i, host := range result.DiscoveredHosts {
-			fmt.Printf("\n[%d] %s\n", i+1, host.IP)
-
-			if host.Hostname != "" {
-				fmt.Printf("    Hostname: %s\n", host.Hostname)
+		fmt.Printf("%-20s %-25s %-20s %s\n", "IP Address", "Hostname", "OS", "Open Ports")
+		fmt.Println("─────────────────────────────────────────────────────────────────────────────────────────────────")
+		
+		for _, host := range result.DiscoveredHosts {
+			hostname := host.Hostname
+			if hostname == "" {
+				hostname = "N/A"
 			}
-
-			// Print OS Detection
-			fmt.Printf("    OS: %s (Confidence: %.0f%%)\n", host.OSDetection.DetectedOS, host.OSDetection.Confidence*100)
-			fmt.Printf("    Version: %s\n", host.OSDetection.ProbableVersion)
-
-			// Print indicators
-			if len(host.OSDetection.Indicators) > 0 {
-				fmt.Println("    Indicators:")
-				for _, indicator := range host.OSDetection.Indicators {
-					fmt.Printf("      • %s\n", indicator)
-				}
-			}
-
-			// Print open ports
-			fmt.Printf("    Open Ports: %d\n", len(host.OpenPorts))
-			for _, port := range host.OpenPorts {
-				fmt.Printf("      • %d/%s - %s\n", port.Port, port.Protocol, port.Service)
-			}
-
-			fmt.Printf("    Scan Duration: %s\n", host.ScanDuration)
+			
+			osName := host.OSDetection.DetectedOS
+			portCount := len(host.OpenPorts)
+			
+			fmt.Printf("%-20s %-25s %-20s %d\n", host.IP, hostname, osName, portCount)
 		}
 	}
 
 	fmt.Println()
 	color.New(color.FgCyan, color.Bold).Println("════════════════════════════════════════════════════════════════")
+	fmt.Println()
+	color.New(color.FgYellow).Println("Note: Detailed reports for each host were displayed during the scan above.")
+	fmt.Println()
 }

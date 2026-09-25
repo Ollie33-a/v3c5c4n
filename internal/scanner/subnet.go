@@ -27,6 +27,7 @@ type HostDiscovery struct {
 	OSDetection     OSFingerprint
 	DiscoveredAt    time.Time
 	ScanDuration    time.Duration
+	Vulnerabilities []PortVulnerability
 }
 
 // SubnetResult contains all hosts in a subnet
@@ -51,7 +52,7 @@ func NewSubnetScanner(config *models.ScanConfig, logger *utils.Logger) *SubnetSc
 	}
 }
 
-// ScanSubnet scans an entire subnet
+// ScanSubnet scans an entire subnet with detailed host information
 func (ss *SubnetScanner) ScanSubnet() (*SubnetResult, error) {
 	result := &SubnetResult{
 		Subnet:          ss.config.Target,
@@ -66,55 +67,39 @@ func (ss *SubnetScanner) ScanSubnet() (*SubnetResult, error) {
 	}
 
 	result.TotalHosts = len(ips)
+	ss.logger.Info("════════════════════════════════════════════════════════════════")
+	ss.logger.Info("SUBNET SCAN INITIATED")
+	ss.logger.Info("════════════════════════════════════════════════════════════════")
 	ss.logger.Info("Scanning subnet %s (%d hosts)", ss.config.Target, len(ips))
 	ss.logger.Info("Using %d threads with rate limit: %d packets/sec", ss.config.ThreadCount, ss.config.RateLimit)
+	ss.logger.Info("Port range: %d-%d", ss.config.Ports[0], ss.config.Ports[len(ss.config.Ports)-1])
+	ss.logger.Info("════════════════════════════════════════════════════════════════\n")
 
 	// Stage 1: Host Discovery (Ping Sweep)
-	ss.logger.Info("\n[Stage 1/2] Performing host discovery...")
+	ss.logger.Info("[Stage 1/2] Performing host discovery on %d IPs...", len(ips))
 	aliveHosts := ss.discoverHosts(ips)
+	ss.logger.Success("Found %d alive hosts out of %d total hosts\n", len(aliveHosts), len(ips))
 
-	ss.logger.Success("Found %d alive hosts out of %d", len(aliveHosts), len(ips))
-
-	// Stage 2: Port Scanning on Alive Hosts
-	ss.logger.Info("\n[Stage 2/2] Scanning ports on alive hosts...")
 	result.AliveHosts = len(aliveHosts)
 	result.DownHosts = len(ips) - len(aliveHosts)
 
-	// Scan each alive host
-	hostResults := make(chan HostDiscovery, len(aliveHosts))
-	var wg sync.WaitGroup
+	// Stage 2: Sequential Port Scanning on Alive Hosts
+	ss.logger.Info("[Stage 2/2] Detailed scanning of alive hosts (sequential)...")
+	ss.logger.Info("Scanning each host individually with full port details\n")
 
-	// Create worker pool
-	numWorkers := ss.config.ThreadCount / 2
-	if numWorkers < 1 {
-		numWorkers = 1
-	}
+	for i, ip := range aliveHosts {
+		ss.logger.Info("════════════════════════════════════════════════════════════════")
+		ss.logger.Info("[Host %d/%d] Scanning %s", i+1, len(aliveHosts), ip)
+		ss.logger.Info("════════════════════════════════════════════════════════════════")
 
-	hostQueue := make(chan string, len(aliveHosts))
-
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go ss.hostWorker(hostQueue, hostResults, &wg)
-	}
-
-	// Send hosts to scan
-	go func() {
-		for _, ip := range aliveHosts {
-			hostQueue <- ip
-		}
-		close(hostQueue)
-	}()
-
-	// Collect results
-	go func() {
-		wg.Wait()
-		close(hostResults)
-	}()
-
-	for hostResult := range hostResults {
-		result.HostsScanned++
-		if len(hostResult.OpenPorts) > 0 {
-			result.DiscoveredHosts = append(result.DiscoveredHosts, hostResult)
+		hostDiscovery := ss.scanHost(ip)
+		
+		if hostDiscovery.IsAlive && len(hostDiscovery.OpenPorts) > 0 {
+			result.HostsScanned++
+			result.DiscoveredHosts = append(result.DiscoveredHosts, hostDiscovery)
+			
+			// Print detailed report for this host immediately
+			ss.printHostReport(hostDiscovery, i+1, len(aliveHosts))
 		}
 	}
 
@@ -134,8 +119,8 @@ func (ss *SubnetScanner) discoverHosts(ips []string) []string {
 
 	// Worker pool for host discovery
 	numWorkers := ss.config.ThreadCount
-	if numWorkers > 32 {
-		numWorkers = 32 // Cap at 32 for discovery
+	if numWorkers > 64 {
+		numWorkers = 64 // Cap at 64 for discovery
 	}
 
 	for i := 0; i < numWorkers; i++ {
@@ -146,8 +131,8 @@ func (ss *SubnetScanner) discoverHosts(ips []string) []string {
 				if ss.isHostAlive(ip) {
 					aliveHostsMux.Lock()
 					aliveHosts = append(aliveHosts, ip)
-					aliveHostsMux.Unlock()
 					ss.logger.Success("Host alive: %s", ip)
+					aliveHostsMux.Unlock()
 				}
 			}
 		}()
@@ -166,7 +151,7 @@ func (ss *SubnetScanner) discoverHosts(ips []string) []string {
 // isHostAlive checks if a host is alive using multiple methods
 func (ss *SubnetScanner) isHostAlive(ip string) bool {
 	// Method 1: TCP port check on common ports
-	commonPorts := []int{22, 80, 443, 445, 3389}
+	commonPorts := []int{22, 80, 443, 445, 3389, 139}
 	for _, port := range commonPorts {
 		address := fmt.Sprintf("%s:%d", ip, port)
 		conn, err := net.DialTimeout("tcp", address, 1*time.Second)
@@ -176,54 +161,179 @@ func (ss *SubnetScanner) isHostAlive(ip string) bool {
 		}
 	}
 
-	// Method 2: Fallback - try generic connection
-	address := fmt.Sprintf("%s:443", ip)
-	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
-	if err == nil {
-		conn.Close()
-		return true
+	// Method 2: Extended port check
+	extendedPorts := []int{25, 53, 67, 111, 135, 139, 161, 179, 389, 443, 512, 513, 514, 993, 995, 1433, 1521, 3306, 5432}
+	for _, port := range extendedPorts {
+		address := fmt.Sprintf("%s:%d", ip, port)
+		conn, err := net.DialTimeout("tcp", address, 500*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
 	}
 
 	return false
 }
 
-// hostWorker scans individual hosts
-func (ss *SubnetScanner) hostWorker(hostQueue chan string, results chan HostDiscovery, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	ns := NewNetworkScanner(ss.config, ss.logger)
-
-	for ip := range hostQueue {
-		ss.logger.Info("Scanning host %s...", ip)
-
-		// Create temp config for this host
-		tempConfig := *ss.config
-		tempConfig.Target = ip
-
-		ns.config = &tempConfig
-		scanResult, err := ns.Scan()
-
-		if err != nil {
-			ss.logger.Warn("Failed to scan %s: %v", ip, err)
-			continue
-		}
-
-		hostDiscovery := HostDiscovery{
-			IP:           ip,
-			IsAlive:      len(scanResult.OpenPorts) > 0,
-			OpenPorts:    scanResult.OpenPorts,
-			DiscoveredAt: time.Now(),
-			ScanDuration: scanResult.ScanDuration,
-		}
-
-		// Perform OS detection
-		hostDiscovery.OSDetection = DetectOS(scanResult.OpenPorts)
-
-		// Try to get hostname
-		hostDiscovery.Hostname = getHostname(ip)
-
-		results <- hostDiscovery
+// scanHost performs detailed scan on a single host
+func (ss *SubnetScanner) scanHost(ip string) HostDiscovery {
+	hostDiscovery := HostDiscovery{
+		IP:              ip,
+		IsAlive:         true,
+		OpenPorts:       make([]models.PortResult, 0),
+		DiscoveredAt:    time.Now(),
+		Vulnerabilities: make([]PortVulnerability, 0),
 	}
+
+	// Create config for this host
+	hostConfig := *ss.config
+	hostConfig.Target = ip
+
+	// Scan the host
+	ns := NewNetworkScanner(&hostConfig, ss.logger)
+	scanResult, err := ns.Scan()
+
+	if err != nil || len(scanResult.OpenPorts) == 0 {
+		hostDiscovery.IsAlive = false
+		return hostDiscovery
+	}
+
+	hostDiscovery.OpenPorts = scanResult.OpenPorts
+	hostDiscovery.ScanDuration = scanResult.ScanDuration
+
+	// Perform OS detection
+	hostDiscovery.OSDetection = DetectOS(scanResult.OpenPorts)
+
+	// Get hostname
+	hostDiscovery.Hostname = getHostname(ip)
+
+	// Perform vulnerability scan on open ports
+	vulnScanner := NewVulnerabilityScanner(ss.logger, ip)
+	for _, port := range scanResult.OpenPorts {
+		vulns := vulnScanner.ScanPort(port.Port, port.Service)
+		hostDiscovery.Vulnerabilities = append(hostDiscovery.Vulnerabilities, vulns...)
+	}
+
+	return hostDiscovery
+}
+
+// printHostReport prints detailed report for a single host
+func (ss *SubnetScanner) printHostReport(host HostDiscovery, hostNum int, totalHosts int) {
+	ss.logger.Info("")
+	ss.logger.Info("───────────────────────────────────────────────────────────────")
+	ss.logger.Info("HOST DETAILS: %s", host.IP)
+	ss.logger.Info("───────────────────────────────────────────────────────────────")
+
+	// Hostname
+	if host.Hostname != "" {
+		ss.logger.Info("Hostname: %s", host.Hostname)
+	} else {
+		ss.logger.Info("Hostname: Not resolved")
+	}
+
+	// OS Detection
+	ss.logger.Info("")
+	ss.logger.Info("OS DETECTION:")
+	ss.logger.Info("  Detected: %s", host.OSDetection.DetectedOS)
+	ss.logger.Info("  Confidence: %.0f%%", host.OSDetection.Confidence*100)
+	ss.logger.Info("  Version: %s", host.OSDetection.ProbableVersion)
+	ss.logger.Info("  Family: %s", host.OSDetection.GetOSFamily())
+
+	if len(host.OSDetection.Indicators) > 0 {
+		ss.logger.Info("  Indicators:")
+		for _, indicator := range host.OSDetection.Indicators {
+			ss.logger.Info("    • %s", indicator)
+		}
+	}
+
+	// Open Ports and Services
+	ss.logger.Info("")
+	ss.logger.Info("OPEN PORTS & SERVICES: (%d ports)", len(host.OpenPorts))
+	ss.logger.Info("───────────────────────────────────────────────────────────────")
+
+	if len(host.OpenPorts) == 0 {
+		ss.logger.Warn("No open ports found")
+	} else {
+		for _, port := range host.OpenPorts {
+			ss.logger.Success("Port %d/%s - %s (Confidence: %.0f%%)", 
+				port.Port, port.Protocol, port.Service, port.Confidence*100)
+
+			// Show banner if available
+			if port.Banner != "" {
+				banner := strings.TrimSpace(port.Banner)
+				if len(banner) > 100 {
+					banner = banner[:100] + "..."
+				}
+				ss.logger.Info("  Banner: %s", banner)
+			}
+
+			// Show CVEs if available
+			if len(port.CVEs) > 0 {
+				ss.logger.Error("  CVEs Found:")
+				for _, cve := range port.CVEs {
+					ss.logger.Error("    [%s] %s (CVSS: %.1f)", cve.CVEID, cve.Title, cve.Score)
+				}
+			}
+		}
+	}
+
+	// Vulnerabilities
+	if len(host.Vulnerabilities) > 0 {
+		ss.logger.Info("")
+		ss.logger.Info("DETECTED VULNERABILITIES: (%d)", len(host.Vulnerabilities))
+		ss.logger.Info("───────────────────────────────────────────────────────────────")
+
+		criticalCount := 0
+		highCount := 0
+		mediumCount := 0
+
+		for _, vuln := range host.Vulnerabilities {
+			switch vuln.Severity {
+			case "critical":
+				criticalCount++
+			case "high":
+				highCount++
+			case "medium":
+				mediumCount++
+			}
+		}
+
+		ss.logger.Info("Critical: %d | High: %d | Medium: %d", criticalCount, highCount, mediumCount)
+
+		for _, vuln := range host.Vulnerabilities {
+			switch vuln.Severity {
+			case "critical":
+				ss.logger.Error("[CRITICAL] Port %d - %s (CVSS: %.1f)", vuln.Port, vuln.Title, vuln.CVSS)
+			case "high":
+				ss.logger.Error("[HIGH] Port %d - %s (CVSS: %.1f)", vuln.Port, vuln.Title, vuln.CVSS)
+			case "medium":
+				ss.logger.Warn("[MEDIUM] Port %d - %s (CVSS: %.1f)", vuln.Port, vuln.Title, vuln.CVSS)
+			case "low":
+				ss.logger.Info("[LOW] Port %d - %s (CVSS: %.1f)", vuln.Port, vuln.Title, vuln.CVSS)
+			}
+
+			ss.logger.Info("  Description: %s", vuln.Description)
+			if len(vuln.CVEs) > 0 {
+				ss.logger.Error("  CVEs: %v", vuln.CVEs)
+			}
+			ss.logger.Info("  Remediation: %s", vuln.Remediation)
+			ss.logger.Info("  Confidence: %.0f%%\n", vuln.ConfidenceScore*100)
+		}
+	} else {
+		ss.logger.Info("")
+		ss.logger.Success("No vulnerabilities detected on this host")
+	}
+
+	// Scan Stats
+	ss.logger.Info("")
+	ss.logger.Info("SCAN STATISTICS:")
+	ss.logger.Info("  Duration: %s", host.ScanDuration)
+	ss.logger.Info("  Discovered: %s", host.DiscoveredAt.Format(time.RFC3339))
+
+	ss.logger.Info("")
+	ss.logger.Info("───────────────────────────────────────────────────────────────")
+	ss.logger.Info("Progress: [%d/%d hosts scanned]", hostNum, totalHosts)
+	ss.logger.Info("───────────────────────────────────────────────────────────────\n")
 }
 
 // parseSubnet parses CIDR notation and returns all IPs
