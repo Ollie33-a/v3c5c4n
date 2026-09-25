@@ -2,7 +2,6 @@ package utils
 
 import (
     "fmt"
-    "log"
     "os"
     "time"
 
@@ -65,7 +64,7 @@ func (l *Logger) Banner() {
     fmt.Println()
     color.New(color.FgMagenta, color.Bold).Println("╔═══════════════════════════════════════════════════════════════╗")
     color.New(color.FgMagenta, color.Bold).Println("║         VecScan - Advanced Network & Web Vulnerability Scanner   ║")
-    color.New(color.FgMagenta, color.Bold).Println("║              By  Ollie         | Version 1.0.0                  ║")
+    color.New(color.FgMagenta, color.Bold).Println("║              By Vectalith Labs | Version 1.0.0                  ║")
     color.New(color.FgMagenta, color.Bold).Println("╚═══════════════════════════════════════════════════════════════╝")
     fmt.Println()
 }
