@@ -1663,7 +1663,7 @@ Special thanks to:
 
 <div align="center">
 
-### Made by Vectalith Labs 🚀
+### Made by Ollie 🚀
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/Ollie33-a/v3c5c4n?style=social)
 ![GitHub followers](https://img.shields.io/github/followers/Ollie33-a?style=social)
