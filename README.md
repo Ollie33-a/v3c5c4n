@@ -1640,8 +1640,8 @@ Only use VecScan:
 
 - 🐛 **Report Issues**: [GitHub Issues](https://github.com/Ollie33-a/v3c5c4n/issues)
 - 💬 **Discussions**: [GitHub Discussions](https://github.com/Ollie33-a/v3c5c4n/discussions)
-- 📧 **Email**: support@vectalith-labs.com
-- 🌐 **Website**: https://vectalith-labs.com
+- 📧 **Email**: chinaemezu.j.okechi@gmail.com
+- 🌐 **Website**: *
 
 ---
 
